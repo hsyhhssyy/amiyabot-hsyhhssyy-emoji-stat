@@ -98,7 +98,7 @@ async def check_image(hash_value, file_path, data):
         if l_time > delta:
             await data.send(Chain(data).text(f'博士，这张图已经在{time.strftime("%H:%M:%S",time.localtime(l_time))}水过了。'))
 
-        c.execute("UPDATE EMOJI_STAT SET SEND_COUNT = SEND_COUNT +1,SEND_TIME = ?,LAST_SENDER= ? where IMAGE_HASH = ? and  and CHANNEL_ID = ?",
+        c.execute("UPDATE EMOJI_STAT SET SEND_COUNT = SEND_COUNT +1,SEND_TIME = ?,LAST_SENDER= ? where IMAGE_HASH = ? and CHANNEL_ID = ?",
             [now, user_id, f'{hash_value}',channel_id])
         
         conn.commit()
