@@ -4,10 +4,11 @@
 
 > 使用插件
 
-- 只有图片大小小于20K的图片才被视为Emoji
-- 发送 `查看群内高频Emoji` 或 `查看群内高频图` 可以查看本群内最常被发送的前10张Emoji。
+- 动图(gif)无论如何都会被视为Emoji
+- 对于静态图，只有图片大小小于50K的图片才被视为Emoji
+- 发送 `兔兔查看Emoji` 或 `兔兔查看高频图` 可以查看本群内最常被发送的前10张Emoji。
 
-- 当用户发送一张大于20K的图片时，如果该图片在最近5小时内被其他群员发送过，则兔兔会回复一句 `[@该目标]，这张图x点x分已经水过了`
+- 当用户发送一张大于50K的图片时，如果该图片在最近5小时内被其他群员发送过，则兔兔会回复一句 `[@该目标]，这张图x点x分已经水过了`
 
 ![水过了例子](https://raw.githubusercontent.com/hsyhhssyy/amiyabot-hsyhhssyy-emoji-stat/master/dup_image_example.jpg)
 
@@ -34,6 +35,8 @@
 - 警告: 恶意收集他人消息可能会招致用户厌恶，进而导致玩家对bot或管理员的举报，请注意自行承担风险。
 - 警告：收集Emoji会占用大量磁盘空间，网友可是会天天发Emoji的。使用的过程中，请时刻关注磁盘空间占用情况。
 - 收集的图片保存在 `resource\emoji-stat\emoji\` 和 `resource\emoji-stat\image\` 下，必要时您可以手动清理。
+
+- 监视撤回功能只在通过mirai控制的QQ群内才能有效，其他情况下相关的功能和指令均不会有任何效果和响应。
 
 > [项目地址:Github](https://github.com/hsyhhssyy/amiyabot-hsyhhssyy-emoji-stat/)
 
