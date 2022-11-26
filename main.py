@@ -16,10 +16,11 @@ curr_dir = os.path.dirname(__file__)
 max_disc = 5
 max_static_image_threhold = 50 * 1024
 
-recall_store_enabled = True
+emoji_collect_enabled = True
 
 class EmojiStatPluginInstance(PluginInstance):
     def install(self):
+
         if not os.path.exists(f'{curr_dir}/../../resource/emoji-stat/emoji'):
             os.makedirs(f'{curr_dir}/../../resource/emoji-stat/emoji')
         
@@ -47,7 +48,26 @@ class EmojiStatPluginInstance(PluginInstance):
                 IMAGE_TYPE      TEXT    NOT NULL,
                 IMAGE_CAT      TEXT    NOT NULL,
                 SENDER     TEXT    NOT NULL);''')
+
+            
+            c.execute('''CREATE TABLE PLUGIN_CONFIG
+                (FUNCTION_NAME     TEXT    NOT NULL,
+                CURRENT_STATE TEXT NOT NULL,
+                CHANNEL_ID      TEXT    NOT NULL);''')
+
+            c.execute('''INSERT INTO PLUGIN_CONFIG 
+            (FUNCTION_NAME,CURRENT_STATE,CHANNEL_ID) VALUES
+            ('emoji_collect_enabled','True','ALL')
+            ''')
+            
             conn.commit()
+        else:
+            conn = sqlite3.connect(f'{curr_dir}/../../resource/emoji-stat/emoji-stat.db')
+            c = conn.cursor()
+            c.execute("SELECT CURRENT_STATE FROM PLUGIN_CONFIG WHERE FUNCTION_NAME = 'emoji_collect_enabled' AND CHANNEL_ID = ?",['ALL'])
+            emoji_collect_enabled = c.fetchall()[0][0] == 'True'
+
+
 
 bot = EmojiStatPluginInstance(
     name='图片记录员',
@@ -57,6 +77,23 @@ bot = EmojiStatPluginInstance(
     description='让兔兔可以收集群友的消息图片，统计常用emoji，和在群友火星了的时候提醒他们。',
     document=f'{curr_dir}/README.md'
 )
+
+async def get_config(config_name,channel_id,connection,default_value)
+    c = connection.cursor()
+    c.execute("SELECT CURRENT_STATE FROM PLUGIN_CONFIG WHERE FUNCTION_NAME = ? AND CHANNEL_ID = ?",[config_name,channel_id])
+    rows = c.fetchall()
+    if len(rows) <= 0:
+        # 写入该值
+        if default_value == True:
+            write_value = 'True'
+        else:
+            write_value = 'False'
+
+        c.execute('''INSERT INTO PLUGIN_CONFIG 
+            (FUNCTION_NAME,CURRENT_STATE,CHANNEL_ID) VALUES (?,?,?)''',[config_name,write_value,channel_id])
+        return default_value
+    else:
+        return rows[0][0] == 'True'
 
 async def any_talk(data: Message):
 
@@ -223,5 +260,28 @@ async def _(event: Event,instance):
     
 
 
-# @bot.on_message(keywords=['查看Emoji','查看高频图'], level = 5)
-# async def check_wordcloud(data: Message):
+@bot.on_message(keywords=['兔兔查看撤回图片'], level = 5)
+async def _(data: Message):
+
+    if os.path.exists(f'{curr_dir}/../../resource/emoji-stat/emoji-stat.db'):
+        conn = sqlite3.connect(f'{curr_dir}/../../resource/emoji-stat/emoji-stat.db')
+    else:
+        return
+
+    # 回溯时间，单位为秒
+    now = time.time()
+    time_delat = now - 60 * 60
+
+    c = conn.cursor()
+    c.execute("SELECT IMAGE_HASH,CHANNEL_ID,SENDER,RECALL_TIME,IMAGE_CAT from RECALL_IMAGE where RECALL_TIME > ? ",[time_delat])
+    for row in c:
+        if row[4] == 'EMOJI':
+            file_path = f'{curr_dir}/../../resource/emoji-stat/emoji/{row[0]}'
+        else:
+            file_path = f'{curr_dir}/../../resource/emoji-stat/image/{row[0]}'
+        
+
+        await data.send(Chain(data).text(f'频道{row[1]}的用户{row[2]}在{time.strftime("%H:%M:%S",time.localtime(row[3]))}撤回了如下图片:').image(file_path))
+    
+@bot.on_message(keywords=['兔兔查看撤回图片'], level = 5)
+async def _(data: Message):
