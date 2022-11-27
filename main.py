@@ -47,7 +47,6 @@ class EmojiStatPluginInstance(PluginInstance):
                 IMAGE_TYPE      TEXT    NOT NULL,
                 IMAGE_CAT      TEXT    NOT NULL,
                 SENDER     TEXT    NOT NULL);''')
-
             
             c.execute('''CREATE TABLE PLUGIN_CONFIG
                 (FUNCTION_NAME     TEXT    NOT NULL,
@@ -60,11 +59,28 @@ class EmojiStatPluginInstance(PluginInstance):
             ''')
             
             conn.commit()
+        
+        conn = sqlite3.connect(f'{curr_dir}/../../resource/emoji-stat/emoji-stat.db')
+        c = conn.cursor()
 
+        # v1.1 加入的新表
+        c.execute('SELECT * FROM SQLITE_MASTER WHERE TBL_NAME = ?',['USER_STAT'])
+        table_check = c.fetchall()
+        if len(table_check) <=0 :
+             c.execute('''CREATE TABLE USER_STAT
+                (USER_ID     TEXT    NOT NULL,
+                USER_NICKNAME TEXT NOT NULL,
+                CHANNEL_ID     TEXT    NOT NULL,
+                IMAGE_COUNT INT     NOT NULL,
+                IMAGE_SIZE       INT     NOT NULL,
+                EMOJI_COUNT      INT     NOT NULL,
+                EMOJI_SIZE      INT     NOT NULL);''')
+
+        conn.commit()
 
 bot = EmojiStatPluginInstance(
     name='图片记录员',
-    version='1.0',
+    version='1.1',
     plugin_id='amiyabot-hsyhhssyy-emoji-stat',
     plugin_type='',
     description='让兔兔可以收集群友的消息图片，统计常用emoji，和在群友火星了的时候提醒他们。',
@@ -91,7 +107,7 @@ async def get_config(config_name,channel_id,default_value):
         c.execute('''INSERT INTO PLUGIN_CONFIG 
             (FUNCTION_NAME,CURRENT_STATE,CHANNEL_ID) VALUES (?,?,?)''',[config_name,write_value,channel_id])
         connection.commit()
-        log.info("写入配置初始值{config_name} {write_value} {channel_id}");
+        log.info(f"写入配置初始值{config_name} {write_value} {channel_id}");
         return default_value
     else:
         return rows[0][0] == 'True'
@@ -182,6 +198,21 @@ async def check_emoji(hash_value, file_path,image_type, data):
     now = time.time()
     c = conn.cursor()
 
+    emoji_collect_enabled = await get_config('emoji_collect_enabled',channel_id,True)
+    if not emoji_collect_enabled:
+        return
+
+    c.execute("SELECT * FROM USER_STAT WHERE USER_ID = ? AND CHANNEL_ID = ?",[ user_id,channel_id])
+    if len(c.fetchall())==0:
+        c.execute('INSERT INTO USER_STAT (USER_ID,USER_NICKNAME,CHANNEL_ID,IMAGE_COUNT,IMAGE_SIZE,EMOJI_COUNT,EMOJI_SIZE) VALUES (?,?,?,0,0,0,0)',[user_id,data.nickname,channel_id])
+    
+    if os.path.exists(file_path):
+        stats = os.stat(file_path)
+        total_size = stats.st_size
+    else:
+        total_size = 0
+    c.execute('UPDATE USER_STAT SET EMOJI_COUNT = EMOJI_COUNT + 1, EMOJI_SIZE = EMOJI_SIZE + ? , USER_NICKNAME = ? WHERE USER_ID = ? AND CHANNEL_ID = ?',[total_size,data.nickname,user_id,channel_id])
+
     c.execute("select SEND_TIME from EMOJI_STAT where IMAGE_HASH = ? and CHANNEL_ID = ? and IMAGE_CAT = 'EMOJI'",[ f'{hash_value}',channel_id])
 
     all_rows = c.fetchall()
@@ -211,12 +242,23 @@ async def check_image(hash_value, file_path,image_type, data):
     channel_id = data.channel_id
     now = time.time()
     delta = now - 5 * 60 * 60
+    c = conn.cursor()
+
+    c.execute("SELECT * FROM USER_STAT WHERE USER_ID = ? AND CHANNEL_ID = ?",[ user_id,channel_id])
+    if len(c.fetchall())==0:
+        c.execute('INSERT INTO USER_STAT (USER_ID,USER_NICKNAME,CHANNEL_ID,IMAGE_COUNT,IMAGE_SIZE,EMOJI_COUNT,EMOJI_SIZE) VALUES (?,?,?,0,0,0,0)',[user_id,data.nickname,channel_id])
+
+    if os.path.exists(file_path):
+        stats = os.stat(file_path)
+        total_size = stats.st_size
+    else:
+        total_size = 0
+    c.execute('UPDATE USER_STAT SET IMAGE_COUNT = IMAGE_COUNT + 1, IMAGE_SIZE = IMAGE_SIZE + ? , USER_NICKNAME = ? WHERE USER_ID = ? AND CHANNEL_ID = ?',[total_size,data.nickname,user_id,channel_id])
 
     martian_detect_enabled = await get_config('martian_detect_enabled',channel_id,True)
     if not martian_detect_enabled:
         return
 
-    c = conn.cursor()
     c.execute("SELECT SEND_TIME from EMOJI_STAT where IMAGE_HASH = ? and CHANNEL_ID = ? AND IMAGE_CAT = 'IMAGE'",[f'{hash_value}',channel_id])
 
     all_rows = c.fetchall()
@@ -247,35 +289,6 @@ async def check_image(hash_value, file_path,image_type, data):
 @bot.on_message(verify=any_talk, check_prefix=False)
 async def _(data: Message):
     return
-
-@bot.on_message(keywords=['查看Emoji','查看高频图'], level = 5)
-async def check_wordcloud(data: Message):
-    if os.path.exists(f'{curr_dir}/../../resource/emoji-stat/emoji-stat.db'):
-        conn = sqlite3.connect(f'{curr_dir}/../../resource/emoji-stat/emoji-stat.db')
-    else:
-        return
-
-    channel_id = data.channel_id
-
-    emoji_collect_enabled = await get_config('emoji_collect_enabled',channel_id,True)
-
-    if not emoji_collect_enabled:
-        return
-
-    c = conn.cursor()
-    c.execute("SELECT IMAGE_HASH,SEND_COUNT,IMAGE_TYPE,IMAGE_CAT from EMOJI_STAT where CHANNEL_ID = ? AND IMAGE_CAT = 'EMOJI' ORDER BY SEND_COUNT DESC",[channel_id])
-    
-    image_order = 0
-
-    for row in c:
-        if image_order > 10:
-            break
-        image_order = image_order + 1
-        
-        file_path = f'{curr_dir}/../../resource/emoji-stat/emoji/{row[0]}' 
-        send_count = row[1]
-        await data.send(Chain(data, at=False).text(f'博士，群内Emoji第{image_order}名被发送过{send_count}次，它是：').image(file_path))
-
 
 @bot.on_event('GroupRecallEvent')
 async def _(event: Event,instance):
@@ -313,6 +326,66 @@ async def _(event: Event,instance):
         await instance.send_message(Chain().at(user_id).text(f'博士，撤回也没用哦，兔兔已经看见啦。'),channel_id=row[1])
     
 
+@bot.on_message(keywords=['查看Emoji','查看高频图'], level = 5)
+async def _(data: Message):
+    if os.path.exists(f'{curr_dir}/../../resource/emoji-stat/emoji-stat.db'):
+        conn = sqlite3.connect(f'{curr_dir}/../../resource/emoji-stat/emoji-stat.db')
+    else:
+        return
+
+    channel_id = data.channel_id
+
+    emoji_collect_enabled = await get_config('emoji_collect_enabled',channel_id,True)
+
+    if not emoji_collect_enabled:
+        return
+
+    c = conn.cursor()
+    c.execute("SELECT IMAGE_HASH,SEND_COUNT,IMAGE_TYPE,IMAGE_CAT from EMOJI_STAT where CHANNEL_ID = ? AND IMAGE_CAT = 'EMOJI' ORDER BY SEND_COUNT DESC",[channel_id])
+    
+    image_order = 0
+
+    for row in c:
+        if image_order > 10:
+            break
+        image_order = image_order + 1
+        
+        file_path = f'{curr_dir}/../../resource/emoji-stat/emoji/{row[0]}' 
+        send_count = row[1]
+        await data.send(Chain(data, at=False).text(f'博士，群内Emoji第{image_order}名被发送过{send_count}次，它是：').image(file_path))
+
+
+@bot.on_message(keywords=['水图王'], level = 5)
+async def _(data: Message):
+    if os.path.exists(f'{curr_dir}/../../resource/emoji-stat/emoji-stat.db'):
+        conn = sqlite3.connect(f'{curr_dir}/../../resource/emoji-stat/emoji-stat.db')
+    else:
+        return
+
+    channel_id = data.channel_id
+    c = conn.cursor()
+
+    c.execute("SELECT USER_ID,USER_NICKNAME,EMOJI_COUNT,IMAGE_COUNT from USER_STAT where CHANNEL_ID = ? ORDER BY IMAGE_COUNT+EMOJI_COUNT DESC",[channel_id])
+    
+    image_order = 0
+
+    for row in c:
+        if image_order > 5:
+            break
+        image_order = image_order + 1
+
+        await data.send(Chain(data, at=False).text(f'发送图片数量的第{image_order}名是"{row[1]}"博士，他发送过{row[2]+row[3]}张图片。'))
+    
+    c.execute("SELECT USER_ID,USER_NICKNAME,EMOJI_SIZE,IMAGE_SIZE from USER_STAT where CHANNEL_ID = ? ORDER BY EMOJI_SIZE+IMAGE_SIZE DESC",[channel_id])
+
+    image_order = 0
+
+    for row in c:
+        if image_order > 5:
+            break
+        image_order = image_order + 1
+
+        await data.send(Chain(data, at=False).text(f'发送图片最大的第{image_order}名是"{row[1]}"博士，他发送过{int((row[2]+row[3])/1024/1024)}MB的图片。'))
 
 @bot.on_message(keywords=['查看撤回图片'],check_prefix = False, direct_only = True)
 async def _(data: Message):
