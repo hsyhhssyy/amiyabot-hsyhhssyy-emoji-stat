@@ -16,8 +16,6 @@ curr_dir = os.path.dirname(__file__)
 max_disc = 5
 max_static_image_threhold = 50 * 1024
 
-emoji_collect_enabled = True
-
 class EmojiStatPluginInstance(PluginInstance):
     def install(self):
 
@@ -45,6 +43,7 @@ class EmojiStatPluginInstance(PluginInstance):
                 MESSAGE_ID TEXT NOT NULL,
                 RECALL_TIME       NUMBER     NOT NULL,
                 CHANNEL_ID      TEXT    NOT NULL,
+                CHANNEL_NAME      TEXT    ,
                 IMAGE_TYPE      TEXT    NOT NULL,
                 IMAGE_CAT      TEXT    NOT NULL,
                 SENDER     TEXT    NOT NULL);''')
@@ -61,12 +60,6 @@ class EmojiStatPluginInstance(PluginInstance):
             ''')
             
             conn.commit()
-        else:
-            conn = sqlite3.connect(f'{curr_dir}/../../resource/emoji-stat/emoji-stat.db')
-            c = conn.cursor()
-            c.execute("SELECT CURRENT_STATE FROM PLUGIN_CONFIG WHERE FUNCTION_NAME = 'emoji_collect_enabled' AND CHANNEL_ID = ?",['ALL'])
-            emoji_collect_enabled = c.fetchall()[0][0] == 'True'
-
 
 
 bot = EmojiStatPluginInstance(
@@ -78,7 +71,13 @@ bot = EmojiStatPluginInstance(
     document=f'{curr_dir}/README.md'
 )
 
-async def get_config(config_name,channel_id,connection,default_value)
+async def get_config(config_name,channel_id,default_value):
+
+    if os.path.exists(f'{curr_dir}/../../resource/emoji-stat/emoji-stat.db'):
+        connection = sqlite3.connect(f'{curr_dir}/../../resource/emoji-stat/emoji-stat.db')
+    else:
+        return default_value
+
     c = connection.cursor()
     c.execute("SELECT CURRENT_STATE FROM PLUGIN_CONFIG WHERE FUNCTION_NAME = ? AND CHANNEL_ID = ?",[config_name,channel_id])
     rows = c.fetchall()
@@ -91,11 +90,42 @@ async def get_config(config_name,channel_id,connection,default_value)
 
         c.execute('''INSERT INTO PLUGIN_CONFIG 
             (FUNCTION_NAME,CURRENT_STATE,CHANNEL_ID) VALUES (?,?,?)''',[config_name,write_value,channel_id])
+        connection.commit()
+        log.info("写入配置初始值{config_name} {write_value} {channel_id}");
         return default_value
     else:
         return rows[0][0] == 'True'
 
+async def set_config(config_name,channel_id,value):
+
+    if os.path.exists(f'{curr_dir}/../../resource/emoji-stat/emoji-stat.db'):
+        connection = sqlite3.connect(f'{curr_dir}/../../resource/emoji-stat/emoji-stat.db')
+    else:
+        return
+
+    if value == True:
+        write_value = 'True'
+    else:
+        write_value = 'False'
+        
+    c = connection.cursor()
+    c.execute("SELECT CURRENT_STATE FROM PLUGIN_CONFIG WHERE FUNCTION_NAME = ? AND CHANNEL_ID = ?",[config_name,channel_id])
+    rows = c.fetchall()
+    if len(rows) <= 0:
+        # 写入该值
+        c.execute('''INSERT INTO PLUGIN_CONFIG 
+            (FUNCTION_NAME,CURRENT_STATE,CHANNEL_ID) VALUES (?,?,?)''',[config_name,write_value,channel_id])
+    else:
+        c.execute("UPDATE PLUGIN_CONFIG SET CURRENT_STATE = ? WHERE FUNCTION_NAME = ? AND CHANNEL_ID = ?",[write_value, config_name,channel_id])
+
+    connection.commit()
+
 async def any_talk(data: Message):
+
+    channel_id = data.channel_id
+    emoji_collect_enabled = await get_config('emoji_collect_enabled',channel_id,True)
+    martian_detect_enabled = await get_config('martian_detect_enabled',channel_id,True)
+    recall_spy_enabled = await get_config('recall_spy_enabled',channel_id,False)
 
     #计算所有的Hash
     for image_item in data.image:
@@ -108,19 +138,28 @@ async def any_talk(data: Message):
                 length = image.getbuffer().nbytes
 
                 if length > max_static_image_threhold and image_type != 'gif':
+                    # 判定为普通图片
+                    if not martian_detect_enabled and not recall_spy_enabled:
+                        continue
+                    
                     hash_value = dhash.dhash_int(Image.open(image),16)
                     file_path = f'{curr_dir}/../../resource/emoji-stat/image/{hash_value}'
+
+                    with open(file_path, mode='wb+') as src:
+                        src.write(imgBytes)
+
+                    await check_image(hash_value, file_path, image_type, data)
                 else:
+
+                    if not emoji_collect_enabled:
+                        continue
+
                     hash_value = hashlib.md5(imgBytes).hexdigest()
                     file_path = f'{curr_dir}/../../resource/emoji-stat/emoji/{hash_value}'
 
-                with open(file_path, mode='wb+') as src:
-                    src.write(imgBytes)
+                    with open(file_path, mode='wb+') as src:
+                        src.write(imgBytes)
 
-
-                if length > max_static_image_threhold and image_type != 'gif':
-                    await check_image(hash_value, file_path, image_type, data)
-                else:
                     await check_emoji(hash_value, file_path, image_type, data)
 
             except OSError:
@@ -172,7 +211,11 @@ async def check_image(hash_value, file_path,image_type, data):
     channel_id = data.channel_id
     now = time.time()
     delta = now - 5 * 60 * 60
-    
+
+    martian_detect_enabled = await get_config('martian_detect_enabled',channel_id,True)
+    if not martian_detect_enabled:
+        return
+
     c = conn.cursor()
     c.execute("SELECT SEND_TIME from EMOJI_STAT where IMAGE_HASH = ? and CHANNEL_ID = ? AND IMAGE_CAT = 'IMAGE'",[f'{hash_value}',channel_id])
 
@@ -214,6 +257,11 @@ async def check_wordcloud(data: Message):
 
     channel_id = data.channel_id
 
+    emoji_collect_enabled = await get_config('emoji_collect_enabled',channel_id,True)
+
+    if not emoji_collect_enabled:
+        return
+
     c = conn.cursor()
     c.execute("SELECT IMAGE_HASH,SEND_COUNT,IMAGE_TYPE,IMAGE_CAT from EMOJI_STAT where CHANNEL_ID = ? AND IMAGE_CAT = 'EMOJI' ORDER BY SEND_COUNT DESC",[channel_id])
     
@@ -239,28 +287,34 @@ async def _(event: Event,instance):
     else:
         return
 
-    if not recall_store_enabled:
-        return
+    group = data['group']
 
-    log.info(f'recall message: {data.keys()}  {dir(event)} {dir(instance)}')
+    log.info(f'recall message: {message_id} {group} ')
+
+    recall_spy_enabled = await get_config('recall_spy_enabled',group["id"],False)
+    if not recall_spy_enabled:
+        return
 
     now = time.time()
 
     c = conn.cursor()
     c.execute("SELECT IMAGE_HASH,CHANNEL_ID,IMAGE_TYPE,IMAGE_CAT,LAST_SENDER from EMOJI_STAT where MESSAGE_ID = ?",[message_id])
     
+    user_id = None
+
     for row in c:
         # 写入Recall表
-        c.execute("INSERT INTO RECALL_IMAGE (IMAGE_HASH,MESSAGE_ID,RECALL_TIME,CHANNEL_ID,IMAGE_TYPE,IMAGE_CAT,SENDER) values (?,?,?,?,?,?,?)" ,
-                [f'{row[0]}',message_id,now,row[1],row[2],row[3],row[4]])
+        c.execute("INSERT INTO RECALL_IMAGE (IMAGE_HASH,MESSAGE_ID,RECALL_TIME,CHANNEL_ID,IMAGE_TYPE,IMAGE_CAT,SENDER,CHANNEL_NAME) values (?,?,?,?,?,?,?,?)" ,
+                [f'{row[0]}',message_id,now,row[1],row[2],row[3],row[4],group["name"]])
+        user_id = row[4]
     
     conn.commit()
-
-    await instance.send_message(Chain().at(row[4]).text(f'博士，撤回也没用哦，兔兔已经看见啦。'),channel_id=row[1])
+    if user_id:
+        await instance.send_message(Chain().at(user_id).text(f'博士，撤回也没用哦，兔兔已经看见啦。'),channel_id=row[1])
     
 
 
-@bot.on_message(keywords=['兔兔查看撤回图片'], level = 5)
+@bot.on_message(keywords=['查看撤回图片'],check_prefix = False, direct_only = True)
 async def _(data: Message):
 
     if os.path.exists(f'{curr_dir}/../../resource/emoji-stat/emoji-stat.db'):
@@ -268,20 +322,134 @@ async def _(data: Message):
     else:
         return
 
+    match = re.search('查看撤回图片(\d*?)分', data.text_digits)
+    if match:
+        minute_delta = int(match.group(1))
+    else:
+        return Chain(data).text(f'博士，请发送 查看撤回图片X分 来指定查看的时间哦。')
+
     # 回溯时间，单位为秒
     now = time.time()
-    time_delat = now - 60 * 60
+    time_delat = now - minute_delta * 60
 
     c = conn.cursor()
     c.execute("SELECT IMAGE_HASH,CHANNEL_ID,SENDER,RECALL_TIME,IMAGE_CAT from RECALL_IMAGE where RECALL_TIME > ? ",[time_delat])
+    image_count = 0
     for row in c:
         if row[4] == 'EMOJI':
             file_path = f'{curr_dir}/../../resource/emoji-stat/emoji/{row[0]}'
         else:
             file_path = f'{curr_dir}/../../resource/emoji-stat/image/{row[0]}'
         
-
+        image_count += 1
         await data.send(Chain(data).text(f'频道{row[1]}的用户{row[2]}在{time.strftime("%H:%M:%S",time.localtime(row[3]))}撤回了如下图片:').image(file_path))
     
-@bot.on_message(keywords=['兔兔查看撤回图片'], level = 5)
+    return Chain(data).text(f'撤回图片列出完毕，在{minute_delta}分内共计{image_count}张图片。')
+
+@bot.on_message(keywords=['关闭收集Emoji','停止收集Emoji'], level = 5)
 async def _(data: Message):
+
+    channel_id = data.channel_id
+    await set_config('emoji_collect_enabled',channel_id,False)
+
+    return Chain(data).text(f'博士，兔兔现在停止收集Emoji啦。') 
+
+@bot.on_message(keywords=['开始收集Emoji','打开收集Emoji','开启收集Emoji'], level = 5)
+async def _(data: Message):
+
+    channel_id = data.channel_id
+    await set_config('emoji_collect_enabled',channel_id,True)
+
+    return Chain(data).text(f'博士，兔兔现在开始收集Emoji啦。') 
+
+@bot.on_message(keywords=['关闭水过了','停止水过了'], level = 5)
+async def _(data: Message):
+
+    channel_id = data.channel_id
+    await set_config('martian_detect_enabled',channel_id,False)
+
+    return Chain(data).text(f'博士，兔兔现在不再关心大家消息是不是灵通啦。') 
+
+
+@bot.on_message(keywords=['开启水过了','打开水过了'], level = 5)
+async def _(data: Message):
+
+    channel_id = data.channel_id
+    await set_config('martian_detect_enabled',channel_id,True)
+
+    return Chain(data).text(f'博士，兔兔现在要看看谁消息不够灵通啦。') 
+
+@bot.on_message(keywords=['关闭撤回','停止撤回'], level = 5)
+async def _(data: Message):
+
+    channel_id = data.channel_id
+    await set_config('recall_spy_enabled',channel_id,False)
+
+    return Chain(data).text(f'博士，兔兔现在不再记录大家撤回的图片了。') 
+
+
+@bot.on_message(keywords=['开启撤回','打开撤回'], level = 5)
+async def _(data: Message):
+
+    channel_id = data.channel_id
+    await set_config('recall_spy_enabled',channel_id,True)
+
+    return Chain(data).text(f'博士，兔兔已经开始记录撤回的图片了，撤回图片会为管理员保存24小时哦。') 
+
+@bot.on_message(keywords=['查看图片记录状态'], level = 10)
+async def _(data: Message):
+
+    channel_id = data.channel_id
+    
+    martian_detect_enabled =await  get_config('martian_detect_enabled',channel_id,True)
+    emoji_collect_enabled = await get_config('emoji_collect_enabled',channel_id,True)
+    recall_spy_enabled =await  get_config('recall_spy_enabled',channel_id,False)
+
+    return Chain(data).text(f'博士，兔兔当前的状态是:\nEmoji统计：{"打开" if emoji_collect_enabled==True else "关闭"}\n水过了检测：{"打开" if martian_detect_enabled==True else "关闭"}\n撤回记录：{"打开" if recall_spy_enabled==True else "关闭"}') 
+
+@bot.on_message(keywords=['清理图片'],check_prefix = False, direct_only = True)
+async def _(data: Message):
+    if os.path.exists(f'{curr_dir}/../../resource/emoji-stat/emoji-stat.db'):
+        conn = sqlite3.connect(f'{curr_dir}/../../resource/emoji-stat/emoji-stat.db')
+    else:
+        return
+
+    match = re.search('清理图片(\d*?)天', data.text_digits)
+    if match:
+        date_delta = int(match.group(1))
+    else:
+        return Chain(data).text(f'博士，请发送 清理图片X天 来指定清理的天数哦。')
+
+    now = time.time()
+    delta = now - date_delta * 24 * 3600
+
+    image_to_delete = []
+    c = conn.cursor()
+    c.execute("SELECT IMAGE_HASH,IMAGE_CAT from EMOJI_STAT WHERE SEND_TIME < ?",[delta])
+    
+    for row in c:
+        # 写入Recall表
+        image_to_delete.append([row[0],row[1]])
+
+    total_size = 0
+    total_count = 0
+
+    for image_info in image_to_delete:
+        # 删掉数据库记录
+        c.execute("DELETE from EMOJI_STAT WHERE IMAGE_HASH = ?",[image_info[0]])
+        c.execute("DELETE from RECALL_IMAGE WHERE IMAGE_HASH = ?",[image_info[0]])
+        # 删掉图片本身
+        if image_info[1] == 'IMAGE':
+            file_path = f'{curr_dir}/../../resource/emoji-stat/image/{image_info[0]}'
+        else:
+            file_path = f'{curr_dir}/../../resource/emoji-stat/emoji/{image_info[0]}'
+
+        if os.path.exists(file_path):
+            stats = os.stat(file_path)
+            total_size += stats.st_size
+            total_count += 1
+            os.remove(file_path)
+
+    conn.commit()
+
+    return Chain(data).text(f'博士，兔兔清理了{date_delta}天内的图片，共计{total_count}张，共计大约{int(total_size/1024/1024)}MB。') 
