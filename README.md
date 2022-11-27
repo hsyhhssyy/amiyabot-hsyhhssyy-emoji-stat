@@ -19,6 +19,7 @@
 - 查看状态
     - 在群内发送 `兔兔查看图片记录状态` 可以查看各个功能的开启和关闭情况
     - 在群内发送 `兔兔查看水图王` 可以查看群内各个用户发图的数量和大小
+    
     ![水图王例子](https://raw.githubusercontent.com/hsyhhssyy/amiyabot-hsyhhssyy-emoji-stat/master/user_stat.jpg)
 
 - 群内管理命令
