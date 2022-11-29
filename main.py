@@ -80,7 +80,7 @@ class EmojiStatPluginInstance(PluginInstance):
 
 bot = EmojiStatPluginInstance(
     name='图片记录员',
-    version='1.1',
+    version='1.2',
     plugin_id='amiyabot-hsyhhssyy-emoji-stat',
     plugin_type='',
     description='让兔兔可以收集群友的消息图片，统计常用emoji，和在群友火星了的时候提醒他们。',
@@ -369,23 +369,41 @@ async def _(data: Message):
     
     image_order = 0
 
+    message_to_send = '发送图片数量的排名如下：\n'
+
     for row in c:
         if image_order > 5:
             break
         image_order = image_order + 1
 
-        await data.send(Chain(data, at=False).text(f'发送图片数量的第{image_order}名是"{row[1]}"博士，他发送过{row[2]+row[3]}张图片。'))
+        message_to_send = message_to_send + f'第{image_order}名："{row[1]}"博士\t发送过{row[2]+row[3]}张图片。\n'
+
+    await data.send(Chain(data, at=False).text(message_to_send))
     
     c.execute("SELECT USER_ID,USER_NICKNAME,EMOJI_SIZE,IMAGE_SIZE from USER_STAT where CHANNEL_ID = ? ORDER BY EMOJI_SIZE+IMAGE_SIZE DESC",[channel_id])
 
     image_order = 0
+    
+    message_to_send = '发送图片大小的排名如下：\n'
 
     for row in c:
         if image_order > 5:
             break
         image_order = image_order + 1
 
-        await data.send(Chain(data, at=False).text(f'发送图片最大的第{image_order}名是"{row[1]}"博士，他发送过{int((row[2]+row[3])/1024/1024)}MB的图片。'))
+        size = row[2]+row[3]
+
+        size_text = f'{size}Byte'
+        if size > 1024 * 1024 * 1024:
+            size_text = f'{int((row[2]+row[3])/1024/1024/1024)}GB'
+        elif size > 1024 * 1024:
+            size_text = f'{int((row[2]+row[3])/1024/1024)}MB'
+        elif size > 1024:
+            size_text = f'{int((row[2]+row[3])/1024)}KB'
+
+        message_to_send = message_to_send + f'第{image_order}名："{row[1]}"博士\t发送过{size_text}的图片。\n'
+
+    await data.send(Chain(data, at=False).text(message_to_send))
 
 @bot.on_message(keywords=['查看撤回图片'],check_prefix = False, direct_only = True)
 async def _(data: Message):
@@ -403,10 +421,12 @@ async def _(data: Message):
 
     # 回溯时间，单位为秒
     now = time.time()
-    time_delat = now - minute_delta * 60
+    if minute_delta > 24 * 60:
+        minute_delta = 24 * 60
+    time_delta = now - minute_delta * 60
 
     c = conn.cursor()
-    c.execute("SELECT IMAGE_HASH,CHANNEL_ID,SENDER,RECALL_TIME,IMAGE_CAT from RECALL_IMAGE where RECALL_TIME > ? ",[time_delat])
+    c.execute("SELECT IMAGE_HASH,CHANNEL_ID,SENDER,RECALL_TIME,IMAGE_CAT from RECALL_IMAGE where RECALL_TIME > ? ",[time_delta])
     image_count = 0
     for row in c:
         if row[4] == 'EMOJI':
