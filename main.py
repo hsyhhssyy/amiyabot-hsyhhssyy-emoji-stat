@@ -4,13 +4,14 @@ import os
 import re
 import dhash
 import time
-import imghdr
 import hashlib
 
 from io import BytesIO
 from PIL import Image
 from amiyabot import AmiyaBot, Message, Chain, log , PluginInstance, Event, BotAdapterProtocol
 from amiyabot.network.download import download_async
+
+from .imghdr import what
 
 curr_dir = os.path.dirname(__file__)
 max_disc = 5
@@ -80,10 +81,10 @@ class EmojiStatPluginInstance(PluginInstance):
 
 bot = EmojiStatPluginInstance(
     name='图片记录员',
-    version='1.2',
+    version='1.3',
     plugin_id='amiyabot-hsyhhssyy-emoji-stat',
     plugin_type='',
-    description='让兔兔可以收集群友的消息图片，统计常用emoji，和在群友火星了的时候提醒他们。',
+    description='让兔兔可以收集群友的消息图片，统计常用emoji，和在群友火星了的时候提醒他们。\n1.3版本修复了可执行文件部署时报错找不到imghdr的问题',
     document=f'{curr_dir}/README.md'
 )
 
@@ -149,7 +150,7 @@ async def any_talk(data: Message):
         if imgBytes:
             image = BytesIO(imgBytes)
             try:
-                image_type = imghdr.what(None,imgBytes)
+                image_type = what(None,imgBytes)
                 
                 length = image.getbuffer().nbytes
 
