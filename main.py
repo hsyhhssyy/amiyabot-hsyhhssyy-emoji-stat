@@ -81,7 +81,7 @@ class EmojiStatPluginInstance(PluginInstance):
 
 bot = EmojiStatPluginInstance(
     name='图片记录员',
-    version='1.3',
+    version='1.4',
     plugin_id='amiyabot-hsyhhssyy-emoji-stat',
     plugin_type='',
     description='让兔兔可以收集群友的消息图片，统计常用emoji，和在群友火星了的时候提醒他们。\n1.3版本修复了可执行文件部署时报错找不到imghdr的问题',
@@ -327,7 +327,7 @@ async def _(event: Event,instance):
         await instance.send_message(Chain().at(user_id).text(f'博士，撤回也没用哦，兔兔已经看见啦。'),channel_id=row[1])
     
 
-@bot.on_message(keywords=['查看Emoji','查看高频图'], level = 5)
+@bot.on_message(keywords=['查看Emoji','查看高频图','查询Emoji','查询高频图'], level = 5)
 async def _(data: Message):
     if os.path.exists(f'{curr_dir}/../../resource/emoji-stat/emoji-stat.db'):
         conn = sqlite3.connect(f'{curr_dir}/../../resource/emoji-stat/emoji-stat.db')
@@ -347,7 +347,7 @@ async def _(data: Message):
     image_order = 0
 
     for row in c:
-        if image_order > 10:
+        if image_order >= 10:
             break
         image_order = image_order + 1
         

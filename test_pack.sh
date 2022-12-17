@@ -1,6 +1,6 @@
 #!/bin/sh
 
-zip -q -r amiyabot-hsyhhssyy-emoji-stat-1.3.zip *
+zip -q -r amiyabot-hsyhhssyy-emoji-stat-1.4.zip *
 rm -rf ../../amiya-bot-v6/plugins/amiyabot-hsyhhssyy-emoji-stat-*
 mv amiyabot-hsyhhssyy-emoji-stat-*.zip ../../amiya-bot-v6/plugins/
 docker restart amiya-bot 
