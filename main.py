@@ -81,7 +81,7 @@ class EmojiStatPluginInstance(PluginInstance):
 
 bot = EmojiStatPluginInstance(
     name='图片记录员',
-    version='1.4',
+    version='1.5',
     plugin_id='amiyabot-hsyhhssyy-emoji-stat',
     plugin_type='',
     description='让兔兔可以收集群友的消息图片，统计常用emoji，和在群友火星了的时候提醒他们。\n1.3版本修复了可执行文件部署时报错找不到imghdr的问题',
@@ -151,6 +151,9 @@ async def any_talk(data: Message):
             image = BytesIO(imgBytes)
             try:
                 image_type = what(None,imgBytes)
+
+                if  image_type is None:
+                    image_type = "Unknown"                
                 
                 length = image.getbuffer().nbytes
 
@@ -186,7 +189,6 @@ async def any_talk(data: Message):
 
 async def check_emoji(hash_value, file_path,image_type, data):
     
-    # log.info(f'this file {file_path} is: {image_type} as emoji')
     # emoji使用文件hash而不是图像灰度hash
 
     if os.path.exists(f'{curr_dir}/../../resource/emoji-stat/emoji-stat.db'):
