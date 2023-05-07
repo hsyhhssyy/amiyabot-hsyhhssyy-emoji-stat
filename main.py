@@ -8,6 +8,7 @@ from amiyabot import Message, Chain, log, PluginInstance, Event
 from amiyabot.database import *
 from amiyabot.network.download import download_async
 from core.database.bot import DisabledFunction
+from core.customPluginInstance import AmiyaBotPluginInstance
 
 from .imghdr import what
 
@@ -53,18 +54,6 @@ class RecallImage(EmojiStatBaseModel):
     IMAGE_CAT: str = TextField(null=False)
     SENDER: str = TextField(null=False)
 
-
-@table
-class PluginConfig(EmojiStatBaseModel):
-    class Meta:
-        table_name = 'PLUGIN_CONFIG'
-        primary_key = CompositeKey('FUNCTION_NAME', 'CHANNEL_ID')
-
-    FUNCTION_NAME: str = TextField(null=False)
-    CURRENT_STATE: str = TextField(null=False)
-    CHANNEL_ID: str = TextField(null=False)
-
-
 @table
 class UserStat(EmojiStatBaseModel):
     class Meta:
@@ -80,7 +69,7 @@ class UserStat(EmojiStatBaseModel):
     EMOJI_SIZE: int = IntegerField(null=False)
 
 
-class EmojiStatPluginInstance(PluginInstance):
+class EmojiStatPluginInstance(AmiyaBotPluginInstance):
     def install(self):
 
         if not os.path.exists(f'{curr_dir}/../../resource/emoji-stat/emoji'):
@@ -89,55 +78,27 @@ class EmojiStatPluginInstance(PluginInstance):
         if not os.path.exists(f'{curr_dir}/../../resource/emoji-stat/image'):
             os.makedirs(f'{curr_dir}/../../resource/emoji-stat/image')
 
-        config = PluginConfig.get_or_none(PluginConfig.FUNCTION_NAME == 'emoji_collect_enabled')
-        if config is None:
-            PluginConfig.create(FUNCTION_NAME='emoji_collect_enabled', CURRENT_STATE='True', CHANNEL_ID='ALL')
-
 
 bot = EmojiStatPluginInstance(
     name='图片记录员',
-    version='1.6',
+    version='2.0',
     plugin_id='amiyabot-hsyhhssyy-emoji-stat',
     plugin_type='',
-    description='让兔兔可以收集群友的消息图片，统计常用emoji，和在群友火星了的时候提醒他们。\n1.3版本修复了可执行文件部署时报错找不到img-hdr的问题',
-    document=f'{curr_dir}/README.md'
+    description='让兔兔可以收集群友的消息图片，统计常用emoji，和在群友火星了的时候提醒他们。',
+    document=f'{curr_dir}/README.md',    
+    channel_config_default=f'{curr_dir}/config/config_default.json',
+    channel_config_schema=f'{curr_dir}/config/config_schema.json', 
+    global_config_default=f'{curr_dir}/config/config_default.json',
+    global_config_schema=f'{curr_dir}/config/config_schema.json', 
 )
 
 
-async def get_config(config_name, channel_id, default_value):
-    rows = PluginConfig.select(PluginConfig.CURRENT_STATE).where(PluginConfig.FUNCTION_NAME == config_name,
-                                                                 PluginConfig.CHANNEL_ID == channel_id)
-    if len(rows) <= 0:
-        # 写入该值
-        if default_value:
-            write_value = 'True'
-        else:
-            write_value = 'False'
-
-        PluginConfig.create(FUNCTION_NAME=config_name, CURRENT_STATE=write_value, CHANNEL_ID=channel_id)
-        log.info(f"写入配置初始值{config_name} {write_value} {channel_id}")
-        return default_value
-    else:
-        return rows[0].CURRENT_STATE == 'True'
-
+async def get_config(config_name, channel_id):
+    return bot.get_config(config_name,channel_id)
 
 async def set_config(config_name, channel_id, value):
-    if value:
-        write_value = 'True'
-    else:
-        write_value = 'False'
-
-    rows = PluginConfig.select(PluginConfig.CURRENT_STATE).where(PluginConfig.FUNCTION_NAME == config_name,
-                                                                 PluginConfig.CHANNEL_ID == channel_id)
-    if len(rows) <= 0:
-        # 写入该值
-        PluginConfig.create(FUNCTION_NAME=config_name, CURRENT_STATE=write_value, CHANNEL_ID=channel_id)
-    else:
-        # 更新该值
-        PluginConfig.update(CURRENT_STATE=write_value).where(PluginConfig.FUNCTION_NAME == config_name,
-                                                             PluginConfig.CHANNEL_ID == channel_id).execute()
-
-
+    bot.set_config(config_name,value,channel_id)
+    
 async def any_talk(data: Message):
     disabled = DisabledFunction.get_or_none(
         function_id='amiyabot-hsyhhssyy-emoji-stat',
@@ -147,9 +108,11 @@ async def any_talk(data: Message):
         return False, 0
 
     channel_id = data.channel_id
-    emoji_collect_enabled = await get_config('emoji_collect_enabled', channel_id, True)
-    martian_detect_enabled = await get_config('martian_detect_enabled', channel_id, True)
-    recall_spy_enabled = await get_config('recall_spy_enabled', channel_id, False)
+    emoji_collect_enabled = await get_config('emoji_collect_enabled', channel_id)
+    martian_detect_enabled = await get_config('martian_detect_enabled', channel_id)
+    recall_spy_enabled = await get_config('recall_spy_enabled', channel_id)
+
+    # log.info(f'{emoji_collect_enabled} {martian_detect_enabled} {recall_spy_enabled}')
 
     # 计算所有的Hash
     for image_item in data.image:
@@ -202,7 +165,7 @@ async def check_emoji(hash_value, file_path, image_type, data):
     channel_id = data.channel_id
     now = time.time()
 
-    emoji_collect_enabled = await get_config('emoji_collect_enabled', channel_id, True)
+    emoji_collect_enabled = await get_config('emoji_collect_enabled', channel_id)
     if not emoji_collect_enabled:
         return
 
@@ -252,7 +215,7 @@ async def check_image(hash_value, file_path, image_type, data):
                     USER_NICKNAME=data.nickname).where(UserStat.USER_ID == user_id,
                                                        UserStat.CHANNEL_ID == channel_id).execute()
 
-    martian_detect_enabled = await get_config('martian_detect_enabled', channel_id, True)
+    martian_detect_enabled = await get_config('martian_detect_enabled', channel_id)
     if not martian_detect_enabled:
         return
 
@@ -304,7 +267,7 @@ async def _(event: Event, instance):
 
     log.info(f'recall message: {message_id} {group} ')
 
-    recall_spy_enabled = await get_config('recall_spy_enabled', group["id"], False)
+    recall_spy_enabled = await get_config('recall_spy_enabled', group["id"])
     if not recall_spy_enabled:
         return
 
@@ -332,7 +295,7 @@ async def _(event: Event, instance):
 async def _(data: Message):
     channel_id = data.channel_id
 
-    emoji_collect_enabled = await get_config('emoji_collect_enabled', channel_id, True)
+    emoji_collect_enabled = await get_config('emoji_collect_enabled', channel_id)
 
     if not emoji_collect_enabled:
         return
@@ -474,9 +437,9 @@ async def _(data: Message):
 async def _(data: Message):
     channel_id = data.channel_id
 
-    martian_detect_enabled = await get_config('martian_detect_enabled', channel_id, True)
-    emoji_collect_enabled = await get_config('emoji_collect_enabled', channel_id, True)
-    recall_spy_enabled = await get_config('recall_spy_enabled', channel_id, False)
+    martian_detect_enabled = await get_config('martian_detect_enabled', channel_id)
+    emoji_collect_enabled = await get_config('emoji_collect_enabled', channel_id)
+    recall_spy_enabled = await get_config('recall_spy_enabled', channel_id)
 
     return Chain(data).text(
         f'博士，兔兔当前的状态是:\nEmoji统计：{"打开" if emoji_collect_enabled == True else "关闭"}\n水过了检测：'

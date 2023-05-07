@@ -1,0 +1,21 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "properties": {
+      "emoji_collect_enabled": {
+        "title":"收集表情包",
+        "description":"收集群友的表情和表情包",
+        "type": "boolean"
+      },
+      "martian_detect_enabled": {
+        "title":"火星人检测",
+        "description":"当群友火星了的时候提醒他们",
+        "type": "boolean"
+      },
+      "recall_spy_enabled": {
+        "title":"撤回监视",
+        "description":"监视群友的撤回信息",
+        "type": "boolean"
+      }
+    }
+  }
